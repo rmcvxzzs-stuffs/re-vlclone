@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package vlclone;
+
+message MediaItem {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  string filename = 4;
+  uint32 duration = 5;
+  string thumbnail = 6;
+}
+
+message MediaList {
+  repeated MediaItem items = 1;
+}
+
+message PlaybackRequest {
+  string media_id = 1;
+}
+
+message PlaybackResponse {
+  string stream_url = 1;
+  MediaItem media = 2;
+}
+
+message UserSession {
+  string session_id = 1;
+  string username = 2;
+}
+
+message PlaybackState {
+  string media_id = 1;
+  float position = 2;
+  bool paused = 3;
+}
+
+message ErrorResponse {
+  uint32 code = 1;
+  string message = 2;
+}

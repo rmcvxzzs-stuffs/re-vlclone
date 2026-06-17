@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package vlclone;
+
+message LoginRequest {
+  string password = 1;
+}
+
+message LoginResponse {
+  bool success = 1;
+  string session_id = 2;
+  string error = 3;
+}
+
+message SessionValidateRequest {
+  string session_id = 1;
+}
+
+message SessionValidateResponse {
+  bool valid = 1;
+}
