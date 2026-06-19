@@ -1,3 +1,5 @@
 allowBuilds:
+  better-sqlite3: true
+  core-js-pure: false
   esbuild: true
   ffmpeg-static: false

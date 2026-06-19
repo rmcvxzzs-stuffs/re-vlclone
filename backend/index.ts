@@ -1,12 +1,23 @@
 import uWS from "uWebSockets.js";
-import * as protobuf from "protobufjs";
-import path from "path";
 import fs from "fs";
+import path from "path";
 import "dotenv/config";
-import { getHlsOutputDir, isTranscoded, transcodeToHls } from "./transcode.js";
+import db from "./db.js";
+import { getOrCreateUserId } from "./identity.js";
+
+// ffmpeg in node.js is hell.
+import {
+  generateThumbnail,
+  getHlsOutputDir,
+  getThumbnailPath,
+  hasThumbnail,
+  isTranscoded,
+  transcodeToHls,
+} from "./transcode.js";
 
 const PORT = 9000;
-const PASSWORD = process.env.VLCLONE_PASSWORD ?? "admin";
+const HOST = process.env.HOST ?? "localhost";
+const PASSWORD = process.env.REVLCLONE_PASSWORD ?? "admin";
 const PROTECTED = process.env.PROTECTED === "true";
 const sessions = new Set<string>();
 
@@ -16,14 +27,15 @@ function isAuthed(req: uWS.HttpRequest): boolean {
   return sid !== "" && sessions.has(sid);
 }
 
-const root = await protobuf.load([
-  path.resolve("proto/media.proto"),
-  path.resolve("proto/auth.proto"),
-]);
-
-const MediaList = root.lookupType("vlclone.MediaList");
-const PlaybackRequest = root.lookupType("vlclone.PlaybackRequest");
-const PlaybackResponse = root.lookupType("vlclone.PlaybackResponse");
+// same goes for protos.
+import {
+  LoginRequest,
+  LoginResponse,
+  MediaList,
+  PlaybackRequest,
+  PlaybackResponse,
+  PlaybackState,
+} from "./proto.js";
 
 // temp in-memory media library
 function scanMediaLibrary() {
@@ -44,27 +56,39 @@ function scanMediaLibrary() {
       description: "",
       filename,
       duration: 0,
-      thumbnail: "",
+      thumbnail: `/thumbnails/${String(index + 1)}`,
     };
   });
 }
 
 let mediaLibrary = scanMediaLibrary();
 
-uWS
+function parseCookies(req: uWS.HttpRequest): Record<string, string> {
+  const header = req.getHeader("cookie") ?? "";
+  const cookies: Record<string, string> = {};
+  for (const part of header.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key) cookies[key] = rest.join("=");
+  }
+  return cookies;
+}
+
+uWS // fuck youuuuuuuu
   .App()
   .get("/api/media", (res, req) => {
     if (!isAuthed(req)) {
       res.writeStatus("401").end();
       return;
     }
+    const { userId, setCookieHeader } = getOrCreateUserId(req);
     mediaLibrary = scanMediaLibrary();
     const payload = MediaList.create({ items: mediaLibrary });
     const encoded = MediaList.encode(payload).finish();
-    res
-      .writeHeader("Content-Type", "application/x-protobuf")
-      .writeHeader("Access-Control-Allow-Origin", "*")
-      .end(encoded);
+    res.cork(() => {
+      res.writeHeader("Content-Type", "application/x-protobuf");
+      if (setCookieHeader) res.writeHeader("Set-Cookie", setCookieHeader);
+      res.writeHeader("Access-Control-Allow-Origin", "*").end(encoded);
+    });
   })
   .post("/api/play", (res, req) => {
     if (!isAuthed(req)) {
@@ -94,13 +118,72 @@ uWS
     });
     res.onAborted(() => {});
   })
+  .post("/api/progress", (res, req) => {
+    if (!isAuthed(req)) {
+      res.writeStatus("401").end();
+      return;
+    }
+    const sessionId = req.getHeader("x-session-id");
+    const { userId, setCookieHeader } = getOrCreateUserId(req);
+
+    let buffer = Buffer.alloc(0);
+    res.onData((chunk, isLast) => {
+      buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+      if (isLast) {
+        const state = PlaybackState.decode(buffer) as any;
+
+        db.prepare(
+          `
+        INSERT INTO watch_history (session_id, media_id, position, user_id, updated_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(session_id, media_id)
+        DO UPDATE SET position = excluded.position, user_id = excluded.user_id, updated_at = excluded.updated_at
+      `,
+        ).run(sessionId, state.mediaId, state.position, userId);
+
+        res.cork(() => {
+          res.writeStatus("200");
+          if (setCookieHeader) res.writeHeader("Set-Cookie", setCookieHeader);
+          res.writeHeader("Access-Control-Allow-Origin", "*").end();
+        });
+      }
+    });
+    res.onAborted(() => {});
+  })
+  .get("/api/history", (res, req) => {
+    if (!isAuthed(req)) {
+      res.writeStatus("401").end();
+      return;
+    }
+    const { userId, setCookieHeader } = getOrCreateUserId(req);
+
+    const rows = db
+      .prepare(
+        `
+    SELECT media_id, position, updated_at
+    FROM watch_history
+    WHERE user_id = ?
+    ORDER BY updated_at DESC
+  `,
+      )
+      .all(userId) as {
+      media_id: string;
+      position: number;
+      updated_at: string;
+    }[];
+
+    const payload = JSON.stringify({ history: rows });
+    res.cork(() => {
+      res.writeHeader("Content-Type", "application/json");
+      if (setCookieHeader) res.writeHeader("Set-Cookie", setCookieHeader);
+      res.writeHeader("Access-Control-Allow-Origin", "*").end(payload);
+    });
+  })
   .post("/api/auth/login", (res, req) => {
     let buffer = Buffer.alloc(0);
     res.onData((chunk, isLast) => {
       buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
       if (isLast) {
-        const LoginRequest = root.lookupType("vlclone.LoginRequest");
-        const LoginResponse = root.lookupType("vlclone.LoginResponse");
         const request = LoginRequest.decode(buffer) as any;
         if (request.password === PASSWORD) {
           const sessionId = crypto.randomUUID();
@@ -257,6 +340,39 @@ uWS
         .end(file);
     });
   })
+  .get("/thumbnails/:id", async (res, req) => {
+    let aborted = false;
+    res.onAborted(() => {
+      aborted = true;
+    });
+
+    const id = req.getParameter(0) ?? "";
+    const item = mediaLibrary.find((m) => m.id === id);
+    if (!item) {
+      res.writeStatus("404 Not Found").end();
+      return;
+    }
+
+    if (!hasThumbnail(id)) {
+      try {
+        await generateThumbnail(id, path.resolve("media", item.filename));
+      } catch (err) {
+        console.error("Thumbnail generation failed:", err);
+        if (!aborted) res.cork(() => res.writeStatus("500").end());
+        return;
+      }
+    }
+
+    if (aborted) return;
+
+    const data = fs.readFileSync(getThumbnailPath(id));
+    res.cork(() => {
+      res
+        .writeHeader("Content-Type", "image/jpeg")
+        .writeHeader("Access-Control-Allow-Origin", "*")
+        .end(data);
+    });
+  })
   .get("/hls/:id/:segment", (res, req) => {
     if (!isAuthed(req)) {
       res.writeStatus("401").end();
@@ -294,6 +410,7 @@ uWS
       .end(file);
   })
   .listen(PORT, (token) => {
-    if (token) console.log(`re-vlclone backend running on :${PORT}`);
+    if (token)
+      console.log(`re-vlclone backend running on ${process.env.HOST}:${PORT}`);
     else console.error("Failed to start server");
   });

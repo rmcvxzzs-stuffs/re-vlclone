@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package vlclone;
+package revlclone;
 
 message MediaItem {
   string id = 1;

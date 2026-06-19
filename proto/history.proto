@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package revlclone;
+
+message WatchHistoryEntry {
+  string media_id = 1;
+  float position = 2;
+  string updated_at = 3;
+}
+
+message WatchHistoryList {
+  repeated WatchHistoryEntry entries = 1;
+}

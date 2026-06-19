@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package vlclone;
+package revlclone;
 
 message LoginRequest {
   string password = 1;

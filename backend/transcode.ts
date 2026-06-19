@@ -1,15 +1,19 @@
 import ffmpeg from "@ts-ffmpeg/fluent-ffmpeg";
 import ffmpegStatic from "ffmpeg-static";
-import path from "path";
 import fs from "fs";
+import path from "path";
 
 const ffmpegPath = ffmpegStatic as unknown as string;
 ffmpeg.setFfmpegPath(ffmpegPath as string);
 
 const HLS_CACHE_DIR = path.resolve("hls_cache");
+const THUMBNAIL_DIR = path.resolve("thumbnails");
 
-console.log("ffmpeg binary path:", ffmpegPath);
-console.log("exists on disk:", fs.existsSync(ffmpegPath));
+/* 
+console.log("ffmpeg binary path:", ffmpegPath);               <- for debugging when ffmpeg isnt recognized
+console.log("exists on disk:", fs.existsSync(ffmpegPath));    <- same as above, to check if the binary actually exists at the path provided by ffmpeg-static
+*/
+
 ffmpeg.setFfmpegPath(ffmpegPath);
 export function getHlsOutputDir(mediaId: string): string {
   return path.join(HLS_CACHE_DIR, mediaId);
@@ -55,5 +59,33 @@ export function transcodeToHls(
         reject(err);
       })
       .run();
+  });
+}
+
+export function getThumbnailPath(mediaId: string): string {
+  return path.join(THUMBNAIL_DIR, `${mediaId}.jpg`);
+}
+
+export function hasThumbnail(mediaId: string): boolean {
+  return fs.existsSync(getThumbnailPath(mediaId));
+}
+
+export function generateThumbnail(
+  mediaId: string,
+  inputPath: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    fs.mkdirSync(THUMBNAIL_DIR, { recursive: true });
+    const outputPath = getThumbnailPath(mediaId);
+
+    ffmpeg(inputPath)
+      .on("end", () => resolve())
+      .on("error", (err: Error) => reject(err))
+      .screenshots({
+        timestamps: ["10%"],
+        filename: `${mediaId}.jpg`,
+        folder: THUMBNAIL_DIR,
+        size: "320x?",
+      });
   });
 }

@@ -1,0 +1,31 @@
+[watch_history]
+description = "Tracks resume position per session per media item"
+
+[watch_history.columns]
+id          = "INTEGER PRIMARY KEY AUTOINCREMENT"
+session_id  = "TEXT NOT NULL"
+media_id    = "TEXT NOT NULL"
+position    = "REAL NOT NULL DEFAULT 0"
+updated_at  = "TEXT NOT NULL DEFAULT (datetime('now'))"
+
+[watch_history.constraints]
+unique = ["session_id", "media_id"]
+
+[access_log]
+description = "Generic event log: logins, failed logins, plays, etc"
+
+[access_log.columns]
+id          = "INTEGER PRIMARY KEY AUTOINCREMENT"
+session_id  = "TEXT"
+event       = "TEXT NOT NULL"
+detail      = "TEXT"
+ip          = "TEXT"
+created_at  = "TEXT NOT NULL DEFAULT (datetime('now'))"
+
+[_migrations]
+description = "Internal table tracking which migration files have been applied"
+
+[_migrations.columns]
+id          = "INTEGER PRIMARY KEY AUTOINCREMENT"
+filename    = "TEXT NOT NULL UNIQUE"
+applied_at  = "TEXT NOT NULL DEFAULT (datetime('now'))"

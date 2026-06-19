@@ -1,6 +1,10 @@
+import path from "path";
 import protobuf from "protobufjs";
 
-const root = await protobuf.load(["/proto/media.proto", "/proto/auth.proto"]);
+const root = await protobuf.load([
+  path.resolve("proto/media.proto"),
+  path.resolve("proto/auth.proto"),
+]);
 
 // media.proto exports
 export const MediaList = root.lookupType("revlclone.MediaList");
@@ -19,3 +23,5 @@ export const SessionValidateRequest = root.lookupType(
 export const SessionValidateResponse = root.lookupType(
   "revlclone.SessionValidateResponse",
 );
+
+export default root;

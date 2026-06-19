@@ -1,0 +1,8 @@
+# deps and cache stuff
+node_modules/
+hls_cache/
+
+# db stuff
+re-vlclone.db
+re-vlclone.db-shm
+re-vlclone.db-wal
