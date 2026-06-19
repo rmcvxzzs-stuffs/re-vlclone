@@ -14,7 +14,4 @@ re-vlclone introduces to new features, such as:
 re-vlclone also introduces:
 
 ## ReDB
-
-ReDB is a tiny ORM-like helper for re-vlclone.
-It only supports SQLite, and i do not have any intentions of adding more support.
-Check [docs/ReDB.md](./docs/ReDB.md) for more information.
+Tiny helper for better-sqlite3. For use in re-vlclone only.
