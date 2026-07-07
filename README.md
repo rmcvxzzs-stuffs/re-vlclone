@@ -1,3 +1,9 @@
+
+
+i really shouldnt've.
+
+og desc:
+
 # re-vlclone
 
 Complete clean room rewrite of vlclone (with better ui, leaning into the Netflix style)
